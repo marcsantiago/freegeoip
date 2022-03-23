@@ -4,4 +4,5 @@ db.gz
 *.csv
 *.zip
 *.sqlite
+*.idea/*
 /vendor/*/
