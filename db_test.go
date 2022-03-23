@@ -16,7 +16,7 @@ import (
 	"time"
 )
 
-var testFile = "testdata/db.gz"
+var testFile = "testdata/country_db.gz"
 
 func TestMaxMindUpdateURL(t *testing.T) {
 	UserID := "hello"
@@ -51,21 +51,6 @@ func TestMaxMindUpdateURL(t *testing.T) {
 	}
 }
 
-func TestDownload(t *testing.T) {
-	if _, err := os.Stat(testFile); err == nil {
-		t.Skip("Test database already exists:", testFile)
-	}
-	db := &DB{}
-	dbfile, err := db.download(MaxMindDB)
-	if err != nil {
-		t.Fatal(err)
-	}
-	err = os.Rename(dbfile, testFile)
-	if err != nil {
-		t.Fatal(err)
-	}
-}
-
 func TestNeedUpdateFileMissing(t *testing.T) {
 	db := &DB{file: "does-not-exist"}
 	yes, err := db.needUpdate("whatever")
@@ -93,20 +78,20 @@ func TestNeedUpdateSameFile(t *testing.T) {
 }
 
 func TestNeedUpdateSameMD5(t *testing.T) {
-  db := &DB{file: testFile}
-  _, checksum, err := db.newReader(db.file)
-  if err != nil {
-    t.Fatal(err)
-  }
-  db.checksum = checksum
+	db := &DB{file: testFile}
+	_, checksum, err := db.newReader(db.file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	db.checksum = checksum
 	mux := http.NewServeMux()
-  changeHeaderThenServe := func(h http.Handler) http.HandlerFunc {
-    return func(w http.ResponseWriter, r *http.Request) {
-      w.Header().Add("X-Database-MD5", checksum)
-      h.ServeHTTP(w, r)
-    }
-  }
-  mux.Handle("/testdata/", changeHeaderThenServe(http.FileServer(http.Dir("."))))
+	changeHeaderThenServe := func(h http.Handler) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Add("X-Database-MD5", checksum)
+			h.ServeHTTP(w, r)
+		}
+	}
+	mux.Handle("/testdata/", changeHeaderThenServe(http.FileServer(http.Dir("."))))
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 	yes, err := db.needUpdate(srv.URL + "/" + testFile)
@@ -120,13 +105,13 @@ func TestNeedUpdateSameMD5(t *testing.T) {
 
 func TestNeedUpdateMD5(t *testing.T) {
 	mux := http.NewServeMux()
-  changeHeaderThenServe := func(h http.Handler) http.HandlerFunc {
-    return func(w http.ResponseWriter, r *http.Request) {
-      w.Header().Add("X-Database-MD5", "9823y5981y2398y1234")
-      h.ServeHTTP(w, r)
-    }
-  }
-  mux.Handle("/testdata/", changeHeaderThenServe(http.FileServer(http.Dir("."))))
+	changeHeaderThenServe := func(h http.Handler) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Add("X-Database-MD5", "9823y5981y2398y1234")
+			h.ServeHTTP(w, r)
+		}
+	}
+	mux.Handle("/testdata/", changeHeaderThenServe(http.FileServer(http.Dir("."))))
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 	db := &DB{file: testFile}
@@ -149,8 +134,8 @@ func TestNeedUpdate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer f.Close()
-	defer os.Remove(file)
+	defer func() { _ = f.Close() }()
+	defer func() { _ = os.Remove(file) }()
 	db := &DB{file: file}
 	yes, err := db.needUpdate(srv.URL + "/" + testFile)
 	if err != nil {
@@ -239,7 +224,7 @@ func TestWatchMkdir(t *testing.T) {
 	defer func() {
 		defaultDB = tmp
 		time.Sleep(time.Second)
-		os.RemoveAll(filepath.Dir(defaultDB))
+		_ = os.RemoveAll(filepath.Dir(defaultDB))
 	}()
 	db, err := OpenURL(srv.URL+"/"+testFile, time.Hour, time.Minute)
 	if err != nil {
@@ -259,8 +244,8 @@ func TestWatchMkdirFail(t *testing.T) {
 	defer func() {
 		defaultDB = tmp
 		time.Sleep(time.Second)
-		os.Chmod(basedir, 0755)
-		os.RemoveAll(basedir)
+		_ = os.Chmod(basedir, 0755)
+		_ = os.RemoveAll(basedir)
 	}()
 	mux := http.NewServeMux()
 	mux.Handle("/testdata/", http.FileServer(http.Dir(".")))
@@ -294,7 +279,7 @@ func TestLookupOnURL(t *testing.T) {
 	mux.Handle("/testdata/", http.FileServer(http.Dir(".")))
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
-	os.Remove(defaultDB) // In case it exists.
+	_ = os.Remove(defaultDB) // In case it exists.
 	db, err := OpenURL(srv.URL+"/"+testFile, time.Hour, time.Minute)
 	if err != nil {
 		t.Fatal(err)
@@ -322,7 +307,7 @@ func TestLookupOnURL(t *testing.T) {
 	}
 }
 
-func TestLookuUnavailable(t *testing.T) {
+func TestLookupUnavailable(t *testing.T) {
 	db := &DB{}
 	err := db.Lookup(net.ParseIP("8.8.8.8"), nil)
 	if err == nil {

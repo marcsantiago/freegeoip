@@ -6,3 +6,4 @@ db.gz
 *.sqlite
 *.idea/*
 /vendor/*/
+.DS_Store

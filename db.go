@@ -33,9 +33,6 @@ var (
 
 	// Local cached copy of a database downloaded from a URL.
 	defaultDB = filepath.Join(os.TempDir(), "freegeoip", "db.gz")
-
-	// MaxMindDB is the URL of the free MaxMind GeoLite2 database.
-	MaxMindDB = "http://geolite.maxmind.com/download/geoip/database/GeoLite2-City.mmdb.gz"
 )
 
 // DB is the IP geolocation database.
@@ -99,25 +96,27 @@ func MaxMindUpdateURL(hostname, productID, userID, licenseKey string) (string, e
 		return "", err
 	}
 	sum := md5hash.Sum(nil)
-	hexdigest1 := hex.EncodeToString(sum[:])
+	hexDigest1 := hex.EncodeToString(sum[:])
 	// Get our client IP address.
 	resp, err = http.Get(baseurl + "update_getipaddr")
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 	md5hash = md5.New()
-	io.WriteString(md5hash, licenseKey)
+	_, _ = io.WriteString(md5hash, licenseKey)
 	_, err = io.Copy(md5hash, limiter(resp.Body))
 	if err != nil {
 		return "", err
 	}
 	sum = md5hash.Sum(nil)
-	hexdigest2 := hex.EncodeToString(sum[:])
+	hexDigest2 := hex.EncodeToString(sum[:])
 	// Generate the URL.
 	params := url.Values{
-		"db_md5":        {hexdigest1},
-		"challenge_md5": {hexdigest2},
+		"db_md5":        {hexDigest1},
+		"challenge_md5": {hexDigest2},
 		"user_id":       {userID},
 		"edition_id":    {productID},
 	}
@@ -138,7 +137,7 @@ func OpenURL(url string, updateInterval, maxRetryInterval time.Duration) (*DB, e
 		updateInterval:   updateInterval,
 		maxRetryInterval: maxRetryInterval,
 	}
-	db.openFile() // Optional, might fail.
+	_ = db.openFile() // Optional, might fail.
 	go db.autoUpdate(url)
 	err := db.watchFile()
 	if err != nil {
@@ -153,12 +152,12 @@ func (db *DB) watchFile() error {
 	if err != nil {
 		return err
 	}
-	dbdir, err := db.makeDir()
+	dbDir, err := db.makeDir()
 	if err != nil {
 		return err
 	}
 	go db.watchEvents(watcher)
-	return watcher.Watch(dbdir)
+	return watcher.Watch(dbDir)
 }
 
 func (db *DB) watchEvents(watcher *fsnotify.Watcher) {
@@ -166,11 +165,11 @@ func (db *DB) watchEvents(watcher *fsnotify.Watcher) {
 		select {
 		case ev := <-watcher.Event:
 			if ev.Name == db.file && (ev.IsCreate() || ev.IsModify()) {
-				db.openFile()
+				_ = db.openFile()
 			}
 		case <-watcher.Error:
 		case <-db.notifyQuit:
-			watcher.Close()
+			_ = watcher.Close()
 			return
 		}
 		time.Sleep(time.Second) // Suppress high-rate events.
@@ -190,35 +189,36 @@ func (db *DB) openFile() error {
 	return nil
 }
 
-func (db *DB) newReader(dbfile string) (*maxminddb.Reader, string, error) {
-	f, err := os.Open(dbfile)
+func (db *DB) newReader(dbFile string) (*maxminddb.Reader, string, error) {
+	f, err := os.Open(dbFile)
 	if err != nil {
 		return nil, "", err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	gzf, err := gzip.NewReader(f)
 	if err != nil {
 		return nil, "", err
 	}
-	defer gzf.Close()
+
+	defer func() { _ = gzf.Close() }()
 	b, err := ioutil.ReadAll(gzf)
 	if err != nil {
 		return nil, "", err
 	}
 	checksum := fmt.Sprintf("%x", md5.Sum(b))
-	mmdb, err := maxminddb.FromBytes(b)
-	return mmdb, checksum, err
+	mmDB, err := maxminddb.FromBytes(b)
+	return mmDB, checksum, err
 }
 
 func (db *DB) setReader(reader *maxminddb.Reader, modtime time.Time, checksum string) {
 	db.mu.Lock()
 	defer db.mu.Unlock()
 	if db.closed {
-		reader.Close()
+		_ = reader.Close()
 		return
 	}
 	if db.reader != nil {
-		db.reader.Close()
+		_ = db.reader.Close()
 	}
 	db.reader = reader
 	db.lastUpdated = modtime.UTC()
@@ -260,14 +260,14 @@ func (db *DB) runUpdate(url string) error {
 	if !yes {
 		return nil
 	}
-	tmpfile, err := db.download(url)
+	tmpFile, err := db.download(url)
 	if err != nil {
 		return err
 	}
-	err = db.renameFile(tmpfile)
+	err = db.renameFile(tmpFile)
 	if err != nil {
 		// Cleanup the tempfile if renaming failed.
-		os.RemoveAll(tmpfile)
+		_ = os.RemoveAll(tmpFile)
 	}
 	return err
 }
@@ -282,7 +282,9 @@ func (db *DB) needUpdate(url string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 
 	// Check X-Database-MD5 if it exists
 	headerMd5 := resp.Header.Get("X-Database-MD5")
@@ -301,14 +303,18 @@ func (db *DB) download(url string) (tmpfile string, err error) {
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 	tmpfile = filepath.Join(os.TempDir(),
 		fmt.Sprintf("_freegeoip.%d.db.gz", time.Now().UnixNano()))
 	f, err := os.Create(tmpfile)
 	if err != nil {
 		return "", err
 	}
-	defer f.Close()
+	defer func() {
+		_ = f.Close()
+	}()
 	_, err = io.Copy(f, resp.Body)
 	if err != nil {
 		return "", err
@@ -316,20 +322,20 @@ func (db *DB) download(url string) (tmpfile string, err error) {
 	return tmpfile, nil
 }
 
-func (db *DB) makeDir() (dbdir string, err error) {
-	dbdir = filepath.Dir(db.file)
-	_, err = os.Stat(dbdir)
+func (db *DB) makeDir() (dbDir string, err error) {
+	dbDir = filepath.Dir(db.file)
+	_, err = os.Stat(dbDir)
 	if err != nil {
-		err = os.MkdirAll(dbdir, 0755)
+		err = os.MkdirAll(dbDir, 0755)
 		if err != nil {
 			return "", err
 		}
 	}
-	return dbdir, nil
+	return dbDir, nil
 }
 
 func (db *DB) renameFile(name string) error {
-	os.Rename(db.file, db.file+".bak") // Optional, might fail.
+	_ = os.Rename(db.file, db.file+".bak") // Optional, might fail.
 	_, err := db.makeDir()
 	if err != nil {
 		return err
@@ -447,7 +453,7 @@ func (db *DB) Close() {
 		close(db.notifyInfo)
 	}
 	if db.reader != nil {
-		db.reader.Close()
+		_ = db.reader.Close()
 		db.reader = nil
 	}
 }
